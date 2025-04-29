@@ -1,9 +1,15 @@
 import logging
 import json
+import os
 from datetime import datetime, timedelta
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-import os
+from dotenv import load_dotenv
+
+# Загрузка переменных окружения
+load_dotenv()
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+ALLOWED_USERS = list(map(int, os.getenv("ALLOWED_USER_IDS", "").split(",")))
 
 # Константы путей
 LOG_FILE = "activity_log.json"
@@ -21,7 +27,8 @@ MAIN_MENU = ReplyKeyboardMarkup([
     ["\ud83c\udf1a Сон", "\ud83c\udf7d\ufe0f Еда"],
     ["\ud83c\udf3f Игры", "\ud83c\udf33 Прогулка"],
     ["\ud83d\udcca Статистика"],
-    ["\ud83d\udd27 Настройки", "\ud83d\udcd6 Команды"]
+    ["\ud83d\udd27 Настройки", "\ud83d\udcd6 Команды"],
+    ["\ud83d\udce6 Резервная копия"]
 ], resize_keyboard=True)
 
 STAT_MENU = ReplyKeyboardMarkup([
@@ -58,6 +65,9 @@ settings = load_data(SETTINGS_FILE, {"meals": 3, "walks": 3})
 
 # Команды
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ALLOWED_USERS:
+        await update.message.reply_text("⛔ Вам запрещено пользоваться этим ботом.")
+        return
     await update.message.reply_text(
         "Привет! Я помогу следить за режимом щенка.",
         reply_markup=MAIN_MENU
@@ -65,11 +75,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Обработка кнопок
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ALLOWED_USERS:
+        await update.message.reply_text("⛔ Вам запрещено пользоваться этим ботом.")
+        return
+
     text = update.message.text.strip()
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     if text in ["\ud83c\udf1a Сон", "\ud83c\udf7d\ufe0f Еда", "\ud83c\udf3f Игры", "\ud83c\udf33 Прогулка"]:
-        activity_log.append({"action": text, "time": now})
+        activity_log.append({"action": text, "time": now, "user": update.effective_user.id})
         save_data(LOG_FILE, activity_log)
         await update.message.reply_text(f"Записал: {text} в {now}")
 
@@ -143,12 +157,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Запуск
 
 def main():
-    TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
-    app = Application.builder().token(TOKEN).build()
+    if not TOKEN:
+        print("[Ошибка] TELEGRAM_BOT_TOKEN не задан в .env")
+        return
 
+    app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
     app.run_polling()
 
 if __name__ == "__main__":
