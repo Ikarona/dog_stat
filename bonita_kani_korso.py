@@ -34,8 +34,12 @@ MAIN_MENU = ReplyKeyboardMarkup(
 # === Работа с файлами ===
 def load_data(filename, default):
     if os.path.exists(filename):
-        with open(filename, "r", encoding="utf-8") as f:
-            return json.load(f)
+        try:
+            with open(filename, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except json.JSONDecodeError:
+            print(f"[⚠] Предупреждение: повреждён файл {filename}, он будет перезаписан.")
+            return default
     return default
 
 def save_data(filename, data):
