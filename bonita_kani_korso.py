@@ -269,17 +269,18 @@ def main():
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
+    # Регистрируем хендлеры
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_stat_request))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    # Планировщик задач
-    asyncio.get_event_loop().create_task(backup_worker(app.bot))
-    asyncio.get_event_loop().create_task(reminder_worker(app.bot))
-
-    app.run_polling()
+    # Запускаем фоновые asyncio-задачи **до** старта polling
+    loop = asyncio.get_event_loop()
+    loop.create_task(backup_worker(app.bot))
+    loop.create_task(reminder_worker(app.bot))
 
     print("✅ Bonita_Kani_Korso запущен")
+    # ТОЛЬКО ОДИН запуск polling
     app.run_polling()
 
 if __name__ == "__main__":
