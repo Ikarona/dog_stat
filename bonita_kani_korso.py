@@ -11,9 +11,6 @@ from telegram.ext import (
     ContextTypes,
 )
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from pytz import timezone
-
-scheduler = AsyncIOScheduler(timezone=timezone("Etc/GMT-2"))  # Сербия летом = UTC+2
 
 # === Загрузка переменных окружения ===
 load_dotenv()
@@ -235,8 +232,7 @@ def main():
 
     # Планировщик задач
     try:
-        from pytz import timezone
-        scheduler = AsyncIOScheduler(timezone=timezone("Etc/GMT-2"))
+        scheduler = AsyncIOScheduler()
     except Exception:
         print("⚠️ Не удалось применить таймзону, используем системное время")
     scheduler = AsyncIOScheduler()
