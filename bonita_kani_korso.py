@@ -275,9 +275,8 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     # Запускаем фоновые asyncio-задачи **до** старта polling
-    loop = asyncio.get_event_loop()
-    loop.create_task(backup_worker(app.bot))
-    loop.create_task(reminder_worker(app.bot))
+    app.create_task(backup_worker(app.bot))
+    app.create_task(reminder_worker(app.bot))
 
     print("✅ Bonita_Kani_Korso запущен")
     # ТОЛЬКО ОДИН запуск polling
