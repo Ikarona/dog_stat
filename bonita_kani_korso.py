@@ -26,6 +26,7 @@ logging.basicConfig(
 MAIN_MENU = ReplyKeyboardMarkup([
     ["\ud83c\udf1a Сон", "\ud83c\udf7d\ufe0f Еда"],
     ["\ud83c\udf3f Игры", "\ud83c\udf33 Прогулка"],
+    ["\ud83e\uddfb Био-прогулка"],
     ["\ud83d\udcca Статистика"],
     ["\ud83d\udd27 Настройки", "\ud83d\udcd6 Команды"],
     ["\ud83d\udce6 Резервная копия"]
@@ -45,6 +46,14 @@ COMMAND_MENU = ReplyKeyboardMarkup([
     ["Показать команды", "Добавить команду"],
     ["Назад"]
 ], resize_keyboard=True)
+
+VALID_ACTIONS = [
+    ("\ud83c\udf1a", "Сон"),
+    ("\ud83c\udf7d\ufe0f", "Еда"),
+    ("\ud83c\udf3f", "Игры"),
+    ("\ud83c\udf33", "Прогулка"),
+    ("\ud83e\uddfb", "Био-прогулка")
+]
 
 # Функции загрузки/сохранения
 
@@ -82,12 +91,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    if text in ["\ud83c\udf1a Сон", "\ud83c\udf7d\ufe0f Еда", "\ud83c\udf3f Игры", "\ud83c\udf33 Прогулка"]:
-        activity_log.append({"action": text, "time": now, "user": update.effective_user.id})
-        save_data(LOG_FILE, activity_log)
-        await update.message.reply_text(f"Записал: {text} в {now}")
+    for emoji, action in VALID_ACTIONS:
+        if text == f"{emoji} {action}":
+            activity_log.append({"action": action, "emoji": emoji, "time": now, "user": update.effective_user.id})
+            save_data(LOG_FILE, activity_log)
+            await update.message.reply_text(f"Записал: {emoji} {action} в {now}")
+            return
 
-    elif text == "\ud83d\udcca Статистика":
+    if text == "\ud83d\udcca Статистика":
         await update.message.reply_text("Выбери период:", reply_markup=STAT_MENU)
 
     elif text.startswith("За"):
@@ -95,7 +106,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         since = datetime.now() - timedelta(days=days)
         filtered = [entry for entry in activity_log if datetime.strptime(entry['time'], "%Y-%m-%d %H:%M:%S") >= since]
         if filtered:
-            lines = [f"{e['time']} — {e['action']}" for e in filtered]
+            lines = [f"{e['time']} — {e.get('emoji', '')} {e['action']}" for e in filtered]
             await update.message.reply_text("\n".join(lines), reply_markup=MAIN_MENU)
         else:
             await update.message.reply_text("Нет записей за этот период.", reply_markup=MAIN_MENU)
