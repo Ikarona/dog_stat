@@ -10,8 +10,8 @@ from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     MessageHandler,
-    filters,
     ContextTypes,
+    filters,
 )
 
 # === Load environment ===
@@ -28,31 +28,35 @@ SETTINGS_FILE = "settings.json"
 COMMANDS_FILE = "commands.json"
 
 # === Actions and emojis ===
+ALL_ACTIONS = ["Сон", "Еда", "Игры", "Прогулка", "Био-прогулка"]
 VALID_ACTIONS = [
-    ("🛌", "Сон"),
     ("🍽️", "Еда"),
     ("🌿", "Игры"),
     ("🌳", "Прогулка"),
     ("🧻", "Био-прогулка"),
 ]
-EMOJI_BY_ACTION = {action: emoji for emoji, action in VALID_ACTIONS}
+EMOJI_BY_ACTION = {
+    "Сон": "🛌",
+    "Еда": "🍽️",
+    "Игры": "🌿",
+    "Прогулка": "🌳",
+    "Био-прогулка": "🧻",
+}
 
 # === Keyboards ===
-MAIN_MENU = ReplyKeyboardMarkup(
-    [[f"{emoji} {action}" for emoji, action in VALID_ACTIONS[i:i+2]]
-     for i in range(0, len(VALID_ACTIONS), 2)] + [
-        [KeyboardButton("➕ Добавить вручную")],
-        [KeyboardButton("📊 Статистика")],
-        [KeyboardButton("📦 Резервная копия")],
-    ],
-    resize_keyboard=True,
-)
-STATS_CHOICES = ReplyKeyboardMarkup(
-    [[KeyboardButton("2 дня")],
-     [KeyboardButton("5 дней")],
-     [KeyboardButton("10 дней")]],
-    resize_keyboard=True,
-)
+MAIN_MENU = ReplyKeyboardMarkup([
+    ["🛌 Сон", "➕ Добавить вручную"],
+    ["🍽️ Еда", "🌿 Игры"],
+    ["🌳 Прогулка", "🧻 Био-прогулка"],
+    ["📊 Статистика", "📦 Резервная копия"],
+], resize_keyboard=True)
+
+STATS_CHOICES = ReplyKeyboardMarkup([
+    [KeyboardButton("2 дня")],
+    [KeyboardButton("5 дней")],
+    [KeyboardButton("10 дней")],
+], resize_keyboard=True)
+
 
 # === Storage helpers ===
 def load_data(filename, default):
@@ -80,12 +84,15 @@ def check_log_rotation():
     max_size = 10 * 1024 * 1024  # 10 MB
     if os.path.exists(LOG_FILE) and os.path.getsize(LOG_FILE) > max_size:
         log = load_data(LOG_FILE, [])
-        log = trim_old_records(log, keep_days=20)
-        save_data(LOG_FILE, log)
+        trimmed = trim_old_records(log, keep_days=20)
+        save_data(LOG_FILE, trimmed)
+
 
 # === In-memory state ===
-user_states = {}    # user_id -> {"mode": "postfact", "step": 0|1, "data": {...}}
+user_states = {}    # user_id -> {"mode":"postfact","step":int,"data":{}}
 active_walks = {}   # user_id -> {"start": "YYYY-MM-DD HH:MM:SS"}
+active_sleeps = {}  # user_id -> {"start": "YYYY-MM-DD HH:MM:SS"}
+
 
 # === Statistics helpers ===
 def average_time(times):
@@ -109,7 +116,10 @@ def get_stats(log, days=2):
         stats.setdefault(e["action"], []).append(e["time"])
     text = f"📊 Статистика за {days} дней:\n"
     for action, times in stats.items():
-        text += f"{EMOJI_BY_ACTION.get(action,'')} {action}: {len(times)} раз(а), в среднем в {average_time(times)}\n"
+        text += (
+            f"{EMOJI_BY_ACTION.get(action,'')} {action}: "
+            f"{len(times)} раз(а), в среднем в {average_time(times)}\n"
+        )
     return text
 
 def get_average_time(log, action, days=5):
@@ -117,114 +127,186 @@ def get_average_time(log, action, days=5):
     times = [
         datetime.strptime(e["time"], "%Y-%m-%d %H:%M:%S")
         for e in log
-        if e["action"] == action and datetime.strptime(e["time"], "%Y-%m-%d %H:%M:%S") >= cutoff
+        if e["action"] == action
+        and datetime.strptime(e["time"], "%Y-%m-%d %H:%M:%S") >= cutoff
     ]
     if not times:
         return None
     minutes = sum(t.hour * 60 + t.minute for t in times) // len(times)
     return (minutes // 60, minutes % 60)
 
+
 # === Handlers ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ALLOWED_USER_IDS:
+    uid = update.effective_user.id
+    if uid not in ALLOWED_USER_IDS:
         return await update.message.reply_text("⛔️ У вас нет доступа.")
-    await update.message.reply_text("Привет! Я слежу за режимом щенка 🐶", reply_markup=MAIN_MENU)
+    await update.message.reply_text(
+        "Привет! Я слежу за режимом щенка 🐶", reply_markup=MAIN_MENU
+    )
+
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in ALLOWED_USER_IDS:
         return await update.message.reply_text("⛔️ У вас нет доступа.")
+
     text = update.message.text.strip()
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     log = load_data(LOG_FILE, [])
 
-    # --- Статистика меню ---
+    # --- Статистика ---
     if text == "📊 Статистика":
-        await update.message.reply_text("Выбери период:", reply_markup=STATS_CHOICES)
-        return
+        return await update.message.reply_text("Выбери период:", reply_markup=STATS_CHOICES)
     if text in ("2 дня", "5 дней", "10 дней"):
         days = int(text.split()[0])
-        await update.message.reply_text(get_stats(log, days), reply_markup=MAIN_MENU)
-        return
+        return await update.message.reply_text(get_stats(log, days), reply_markup=MAIN_MENU)
 
-    # --- Резервная копия по кнопке ---
+    # --- Резервная копия ---
     if text == "📦 Резервная копия":
-        for fname in (LOG_FILE, SETTINGS_FILE, COMMANDS_FILE):
-            if os.path.exists(fname):
+        for fn in (LOG_FILE, SETTINGS_FILE, COMMANDS_FILE):
+            if os.path.exists(fn):
                 await context.bot.send_document(chat_id=update.effective_chat.id,
-                                                document=open(fname, "rb"))
+                                                document=open(fn, "rb"))
         return
 
-    # --- Постфактум ввод ---
+    # --- Постфактум-добавление ---
     if user_id in user_states:
         state = user_states[user_id]
-        if state["mode"] == "postfact":
-            if state["step"] == 0:
-                # получили действие
-                if text not in [a for _, a in VALID_ACTIONS]:
-                    await update.message.reply_text("Неверный выбор. Выбери действие.", reply_markup=MAIN_MENU)
-                    user_states.pop(user_id)
-                    return
-                state["data"]["action"] = text
-                await update.message.reply_text("Введи дату и время: ДД.MM.YYYY ЧЧ:ММ")
-                state["step"] = 1
-                return
-            elif state["step"] == 1:
-                try:
-                    dt = datetime.strptime(text, "%d.%m.%Y %H:%M")
-                except ValueError:
-                    await update.message.reply_text("Неверный формат. Попробуй ещё раз.")
-                    return
-                log.append({
-                    "action": state["data"]["action"],
-                    "time": dt.strftime("%Y-%m-%d %H:%M:%S"),
-                    "user": user_id
-                })
-                save_data(LOG_FILE, trim_old_records(log))
-                await update.message.reply_text(f"✅ Записано: {state['data']['action']} в {text}", reply_markup=MAIN_MENU)
+        action = state["data"].get("action")
+        # Шаг 1: получили действие
+        if state["step"] == 0:
+            if text not in ALL_ACTIONS:
                 user_states.pop(user_id)
-                return
-
-    if text == "➕ Добавить вручную":
-        user_states[user_id] = {"mode": "postfact", "step": 0, "data": {}}
-        actions_list = "\n".join(f"• {a}" for _, a in VALID_ACTIONS)
-        await update.message.reply_text(f"Что добавить?\n{actions_list}")
-        return
-
-    # --- Обработка прогулки ---
-    if text.endswith("Прогулка"):
-        if user_id in active_walks:
-            start_time = active_walks.pop(user_id)["start"]
-            end_time = now_str
+                return await update.message.reply_text("Неверный выбор.", reply_markup=MAIN_MENU)
+            state["data"]["action"] = text
+            state["step"] = 1
+            await update.message.reply_text("Введи дату и время: ДД.MM.YYYY ЧЧ:ММ")
+            return
+        # Шаг 2: получили дату и время
+        if state["step"] == 1:
+            try:
+                dt = datetime.strptime(text, "%d.%m.%Y %H:%M")
+            except ValueError:
+                return await update.message.reply_text("Неверный формат. Попробуй снова.")
+            state["data"]["time"] = dt
+            # если прогулка — просим длительность
+            if action in ("Прогулка", "Био-прогулка"):
+                state["step"] = 2
+                return await update.message.reply_text(
+                    "Теперь введи длительность в минутах или ЧЧ:ММ"
+                )
+            # иначе сохраняем сразу
+            log.append({
+                "action": action,
+                "time": dt.strftime("%Y-%m-%d %H:%M:%S"),
+                "user": user_id
+            })
+            save_data(LOG_FILE, trim_old_records(log))
+            user_states.pop(user_id)
+            return await update.message.reply_text(
+                f"✅ Записано: {action} в {dt.strftime('%Y-%m-%d %H:%M:%S')}",
+                reply_markup=MAIN_MENU
+            )
+        # Шаг 3: получили длительность
+        if state["step"] == 2:
+            duration = text
+            # парсим длительность
+            if ":" in duration:
+                h, m = duration.split(":", 1)
+                mins = int(h) * 60 + int(m)
+            else:
+                mins = int(duration)
+            start_dt = state["data"]["time"]
+            end_dt = start_dt + timedelta(minutes=mins)
+            # записываем две метки
             log.extend([
-                {"action": "Прогулка", "time": start_time, "user": user_id, "note": "start"},
-                {"action": "Прогулка", "time": end_time, "user": user_id, "note": "end"},
+                {"action": action, "time": start_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                 "user": user_id, "note": "start"},
+                {"action": action, "time": end_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                 "user": user_id, "note": "end"},
             ])
             save_data(LOG_FILE, trim_old_records(log))
-            await update.message.reply_text("🚶 Прогулка завершена.", reply_markup=MAIN_MENU)
+            user_states.pop(user_id)
+            return await update.message.reply_text(
+                f"✅ {action} с {start_dt.strftime('%H:%M')} до {end_dt.strftime('%H:%M')}",
+                reply_markup=MAIN_MENU
+            )
+
+    # Запуск постфактум
+    if text == "➕ Добавить вручную":
+        user_states[user_id] = {"mode": "postfact", "step": 0, "data": {}}
+        actions_list = "\n".join(f"• {a}" for a in ALL_ACTIONS)
+        return await update.message.reply_text(f"Что добавить?\n{actions_list}")
+
+    # --- Сон: начало/пробуждение ---
+    if text == "🛌 Сон":
+        if user_id in active_sleeps:
+            start_str = active_sleeps.pop(user_id)["start"]
+            dt0 = datetime.strptime(start_str, "%Y-%m-%d %H:%M:%S")
+            dt1 = datetime.now()
+            duration = dt1 - dt0
+            hours, rem = divmod(duration.seconds, 3600)
+            mins = rem // 60
+            log.extend([
+                {"action": "Сон", "time": start_str, "user": user_id, "note": "start"},
+                {"action": "Сон", "time": dt1.strftime("%Y-%m-%d %H:%M:%S"),
+                 "user": user_id, "note": "end"},
+            ])
+            save_data(LOG_FILE, trim_old_records(log))
+            return await update.message.reply_text(
+                f"😴 Пробуждение: сон длился {hours}ч {mins}м", reply_markup=MAIN_MENU
+            )
+        else:
+            active_sleeps[user_id] = {"start": now_str}
+            return await update.message.reply_text("😴 Засыпание зарегистрировано.", reply_markup=MAIN_MENU)
+
+    # --- Прогулка: начало/конец ---
+    if text in ("🌳 Прогулка", "🧻 Био-прогулка"):
+        action = text.split()[1]
+        if user_id in active_walks:
+            start_str = active_walks.pop(user_id)["start"]
+            dt0 = datetime.strptime(start_str, "%Y-%m-%d %H:%M:%S")
+            dt1 = datetime.now()
+            duration = dt1 - dt0
+            hours, rem = divmod(duration.seconds, 3600)
+            mins = rem // 60
+            log.extend([
+                {"action": action, "time": start_str, "user": user_id, "note": "start"},
+                {"action": action, "time": dt1.strftime("%Y-%m-%d %H:%M:%S"),
+                 "user": user_id, "note": "end"},
+            ])
+            save_data(LOG_FILE, trim_old_records(log))
+            return await update.message.reply_text(
+                f"🚶 {action} завершена: {hours}ч {mins}м", reply_markup=MAIN_MENU
+            )
         else:
             active_walks[user_id] = {"start": now_str}
-            await update.message.reply_text("🚶 Прогулка началась.", reply_markup=MAIN_MENU)
-        return
+            return await update.message.reply_text(
+                f"🚶 {action} началась.", reply_markup=MAIN_MENU
+            )
 
-    # --- Простые действия по кнопкам ---
+    # --- Простые действия ---
     for emoji, action in VALID_ACTIONS:
-        if text.endswith(action):
+        if text == f"{emoji} {action}":
             check_log_rotation()
             log.append({"action": action, "time": now_str, "user": user_id})
             save_data(LOG_FILE, trim_old_records(log))
-            await update.message.reply_text(f"✅ {emoji} {action} в {now_str}", reply_markup=MAIN_MENU)
-            return
+            return await update.message.reply_text(
+                f"✅ {emoji} {action} в {now_str}", reply_markup=MAIN_MENU
+            )
 
-    # --- Неизвестный ввод ---
+    # --- Fallback ---
     await update.message.reply_text("Выбери действие из меню.", reply_markup=MAIN_MENU)
 
-# === Periodic tasks ===
+
+# === Periodic tasks via JobQueue ===
 async def send_backup(context: ContextTypes.DEFAULT_TYPE):
     for uid in ALLOWED_USER_IDS:
-        for fname in (LOG_FILE, SETTINGS_FILE, COMMANDS_FILE):
-            if os.path.exists(fname):
-                await context.bot.send_document(chat_id=uid, document=open(fname, "rb"),
+        for fn in (LOG_FILE, SETTINGS_FILE, COMMANDS_FILE):
+            if os.path.exists(fn):
+                await context.bot.send_document(chat_id=uid,
+                                                document=open(fn, "rb"),
                                                 caption="📦 Ежедневная резервная копия")
 
 async def check_reminders(context: ContextTypes.DEFAULT_TYPE):
@@ -238,12 +320,16 @@ async def check_reminders(context: ContextTypes.DEFAULT_TYPE):
         target = datetime.strptime(f"{today} {h:02d}:{m:02d}", "%Y-%m-%d %H:%M")
         now = datetime.now()
         delta = (now - target).total_seconds() / 60
-        if delta >= 6 and delta <= 10:
-            if not any(e["action"] == action and e["time"].startswith(today) for e in log):
-                text = (f"{EMOJI_BY_ACTION[action]} Пора {action.lower()}!\n"
-                        f"Обычно в {h:02d}:{m:02d}, сейчас {now.strftime('%H:%M')}")
-                for uid in ALLOWED_USER_IDS:
-                    await context.bot.send_message(chat_id=uid, text=text)
+        if 6 <= delta <= 10 and not any(
+            e["action"] == action and e["time"].startswith(today) for e in log
+        ):
+            text = (
+                f"{EMOJI_BY_ACTION[action]} Пора {action.lower()}!\n"
+                f"Обычно в {h:02d}:{m:02d}, сейчас {now.strftime('%H:%M')}"
+            )
+            for uid in ALLOWED_USER_IDS:
+                await context.bot.send_message(chat_id=uid, text=text)
+
 
 # === Entry point ===
 def main():
@@ -253,17 +339,18 @@ def main():
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # Register handlers
+    # Handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    # Schedule via JobQueue (no tzdata needed)
+    # Schedule jobs
     jq = app.job_queue
     jq.run_daily(send_backup, time=time(hour=23, minute=59))
     jq.run_repeating(check_reminders, interval=300, first=0)
 
     print("✅ Bonita_Kani_Korso запущен")
     app.run_polling()
+
 
 if __name__ == "__main__":
     main()
