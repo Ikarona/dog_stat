@@ -92,7 +92,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     for emoji, action in VALID_ACTIONS:
-        if text == f"{emoji} {action}":
+        if text.endswith(action):
             activity_log.append({"action": action, "emoji": emoji, "time": now, "user": update.effective_user.id})
             save_data(LOG_FILE, activity_log)
             await update.message.reply_text(f"Записал: {emoji} {action} в {now}")
