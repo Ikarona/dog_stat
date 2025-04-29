@@ -231,7 +231,7 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     # Планировщик задач
-    scheduler = AsyncIOScheduler(timezone="Europe/Belgrade")
+    scheduler = AsyncIOScheduler()
     scheduler.add_job(send_backup, trigger="cron", hour=23, minute=59, args=[app.bot])
     scheduler.add_job(check_reminders, trigger="interval", minutes=5, args=[app.bot])
     scheduler.start()
