@@ -11,6 +11,7 @@ from telegram.ext import (
     ContextTypes,
 )
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from zoneinfo import ZoneInfo
 
 # === Загрузка переменных окружения ===
 load_dotenv()
