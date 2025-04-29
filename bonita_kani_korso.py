@@ -11,7 +11,7 @@ from telegram.ext import (
     ContextTypes,
 )
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 
 # === Загрузка переменных окружения ===
 load_dotenv()
@@ -264,22 +264,23 @@ async def reminder_worker(bot):
 # === Запуск ===
 def main():
     if not BOT_TOKEN or not ALLOWED_USER_IDS:
-        print("❌ Ошибка: переменные TELEGRAM_BOT_TOKEN и ALLOWED_USER_IDS должны быть заданы в .env")
+        print("❌ Ошибка: TELEGRAM_BOT_TOKEN и ALLOWED_USER_IDS должны быть в .env")
         return
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # Регистрируем хендлеры
+    # регистрируем хендлеры
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_stat_request))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    # Запускаем фоновые asyncio-задачи **до** старта polling
-    app.create_task(backup_worker(app.bot))
-    app.create_task(reminder_worker(app.bot))
+    # планируем задачи через JobQueue
+    from datetime import time
+    jq = app.job_queue
+    jq.run_daily(send_backup, time=time(hour=23, minute=59))
+    jq.run_repeating(check_reminders, interval=300, first=0)
 
     print("✅ Bonita_Kani_Korso запущен")
-    # ТОЛЬКО ОДИН запуск polling
     app.run_polling()
 
 if __name__ == "__main__":
