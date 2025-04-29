@@ -231,11 +231,7 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     # Планировщик задач
-    try:
-        scheduler = AsyncIOScheduler()
-    except Exception:
-        print("⚠️ Не удалось применить таймзону, используем системное время")
-    scheduler = AsyncIOScheduler()
+    scheduler = AsyncIOScheduler(timezone=None)
     scheduler.add_job(send_backup, trigger="cron", hour=23, minute=59, args=[app.bot])
     scheduler.add_job(check_reminders, trigger="interval", minutes=5, args=[app.bot])
     scheduler.start()
