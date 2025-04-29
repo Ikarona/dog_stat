@@ -235,7 +235,7 @@ def main():
 
     # Планировщик задач
     try:
-    from pytz import timezone
+        from pytz import timezone
         scheduler = AsyncIOScheduler(timezone=timezone("Etc/GMT-2"))
     except Exception:
         print("⚠️ Не удалось применить таймзону, используем системное время")
