@@ -10,8 +10,8 @@ from telegram.ext import (
     filters,
     ContextTypes,
 )
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from zoneinfo import ZoneInfo
+import asyncio
+from datetime import datetime, timedelta
 
 # === Загрузка переменных окружения ===
 load_dotenv()
@@ -219,6 +219,48 @@ async def handle_stat_request(update: Update, context: ContextTypes.DEFAULT_TYPE
         days = int(text.split()[0])
         await update.message.reply_text(get_stats(log, days=days), reply_markup=MAIN_MENU)
 
+async def backup_worker(bot):
+    """Каждый день в 23:59 шлём бэкап."""
+    while True:
+        now = datetime.now()
+        # рассчитываем время до ближайшей 23:59
+        target = now.replace(hour=23, minute=59, second=0, microsecond=0)
+        if now >= target:
+            target += timedelta(days=1)
+        wait = (target - now).total_seconds()
+        await asyncio.sleep(wait)
+        # отправляем всем бэкап
+        for uid in ALLOWED_USER_IDS:
+            for file in (LOG_FILE, SETTINGS_FILE, COMMANDS_FILE):
+                if os.path.exists(file):
+                    await bot.send_document(chat_id=uid, document=open(file, "rb"),
+                                             caption="📦 Ежедневная резервная копия")
+
+async def reminder_worker(bot):
+    """Проверяем каждые 5 минут напоминания по режиму."""
+    while True:
+        await asyncio.sleep(300)  # 5 минут
+        now = datetime.now()
+        today = now.strftime("%Y-%m-%d")
+        log = load_data(LOG_FILE, [])
+        for action in ("Еда", "Прогулка"):
+            avg = get_average_time(log, action)
+            if not avg:
+                continue
+            h, m = avg
+            # если сегодня ещё не было этого действия и отклонение >6 мин
+            last_done = any(
+                e["action"] == action and e["time"].startswith(today)
+                for e in log
+            )
+            target = datetime.strptime(f"{today} {h:02d}:{m:02d}", "%Y-%m-%d %H:%M")
+            delta_min = (now - target).total_seconds()/60
+            if not last_done and delta_min >= 6:
+                text = (f"{EMOJI_BY_ACTION[action]} Пора {action.lower()}!\n"
+                        f"Обычно в {h:02d}:{m:02d}, сейчас {now.strftime('%H:%M')}")
+                for uid in ALLOWED_USER_IDS:
+                    await bot.send_message(chat_id=uid, text=text)
+
 # === Запуск ===
 def main():
     if not BOT_TOKEN or not ALLOWED_USER_IDS:
@@ -232,10 +274,10 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     # Планировщик задач
-    scheduler = AsyncIOScheduler(timezone=ZoneInfo("UTC"))
-    scheduler.add_job(send_backup, trigger="cron", hour=23, minute=59, args=[app.bot])
-    scheduler.add_job(check_reminders, trigger="interval", minutes=5, args=[app.bot])
-    scheduler.start()
+    asyncio.get_event_loop().create_task(backup_worker(app.bot))
+    asyncio.get_event_loop().create_task(reminder_worker(app.bot))
+
+    app.run_polling()
 
     print("✅ Bonita_Kani_Korso запущен")
     app.run_polling()
