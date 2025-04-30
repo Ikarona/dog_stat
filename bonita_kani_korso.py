@@ -245,58 +245,138 @@ async def handle_message(update:Update, context:ContextTypes.DEFAULT_TYPE):
             log.append({"action":data["action"],"time":now_str,"user":uid,"note":note})
             save_data(LOG_FILE,trim_old(log)); user_states.pop(uid)
             return await update.message.reply_text(f"✅ {data['action']} дома: {text.lower()}.",reply_markup=MAIN_MENU)
+if text == "🛌 Сон":
+        # загружаем лог
+        log = load_data(LOG_FILE, [])
+        # находим все старты без конца для этого пользователя
+        starts = [
+            e for e in log
+            if e["action"] == "Сон" and e.get("note") == "start"
+            and not any(
+                e2["action"] == "Сон" and e2.get("note") == "end"
+                and datetime.strptime(e2["time"], "%Y-%m-%d %H:%M:%S")
+                    > datetime.strptime(e["time"], "%Y-%m-%d %H:%M:%S")
+                and e2["user"] == uid
+                for e2 in log
+            )
+            and e["user"] == uid
+        ]
+        if starts:
+            # закрываем последний незакрытый старт
+            last_start = sorted(starts, key=lambda e: e["time"])[-1]
+            log.append({
+                "action": "Сон",
+                "time": now_str,
+                "user": uid,
+                "note": "end"
+            })
+            save_data(LOG_FILE, trim_old(log))
+            # рассчитываем длительность для вывода
+            dt0 = datetime.strptime(last_start["time"], "%Y-%m-%d %H:%M:%S")
+            dt1 = datetime.strptime(now_str, "%Y-%m-%d %H:%M:%S")
+            delta = dt1 - dt0
+            h, m = divmod(delta.seconds // 60, 60)
+            return await update.message.reply_text(
+                f"😴 Сон завершён: {h}ч {m}м",
+                reply_markup=MAIN_MENU
+            )
+        else:
+            # создаём новую запись старта
+            log.append({
+                "action": "Сон",
+                "time": now_str,
+                "user": uid,
+                "note": "start"
+            })
+            save_data(LOG_FILE, trim_old(log))
+            return await update.message.reply_text(
+                "😴 Сон начат.",
+                reply_markup=MAIN_MENU
+            )
 
-    # Сон toggle
-    if text=="🛌 Сон":
-        if uid in active_sleeps:
-            start=active_sleeps.pop(uid)["start"]
-            dt0=datetime.strptime(start,"%Y-%m-%d %H:%M:%S")
-            mins=int((datetime.now()-dt0).total_seconds()//60)
-            log.extend([{"action":"Сон","time":start,"user":uid,"note":"start"},
-                        {"action":"Сон","time":now_str,"user":uid,"note":"end"}])
-            save_data(LOG_FILE,trim_old(log))
-            return await update.message.reply_text(f"😴 Сон: {mins//60}ч {mins%60}м",reply_markup=MAIN_MENU)
-        active_sleeps[uid]={"start":now_str}
-        return await update.message.reply_text("😴 Сон начат.",reply_markup=MAIN_MENU)
+    # --- Прогулка по тому же принципу ---
+    if text == "🌳 Прогулка":
+        log = load_data(LOG_FILE, [])
+        starts = [
+            e for e in log
+            if e["action"] == "Прогулка" and e.get("note") == "start"
+            and not any(
+                e2["action"]=="Прогулка" and e2.get("note")=="end"
+                and datetime.strptime(e2["time"],"%Y-%m-%d %H:%M:%S")
+                    > datetime.strptime(e["time"],"%Y-%m-%d %H:%M:%S")
+                and e2["user"]==uid
+                for e2 in log
+            )
+            and e["user"]==uid
+        ]
+        if starts:
+            last_start = sorted(starts, key=lambda e: e["time"])[-1]
+            log.append({"action":"Прогулка","time":now_str,"user":uid,"note":"end"})
+            save_data(LOG_FILE, trim_old(log))
+            dt0 = datetime.strptime(last_start["time"], "%Y-%m-%d %H:%M:%S")
+            dt1 = datetime.strptime(now_str, "%Y-%m-%d %H:%M:%S")
+            delta = dt1 - dt0
+            h, m = divmod(delta.seconds // 60, 60)
+            return await update.message.reply_text(
+                f"🚶 Прогулка завершена: {h}ч {m}м",
+                reply_markup=MAIN_MENU
+            )
+        else:
+            log.append({"action":"Прогулка","time":now_str,"user":uid,"note":"start"})
+            save_data(LOG_FILE, trim_old(log))
+            return await update.message.reply_text(
+                "🚶 Прогулка начата.",
+                reply_markup=MAIN_MENU
+            )
 
-    # Прогулка toggle
-    if text=="🌳 Прогулка":
-        if uid in active_walks:
-            start=active_walks.pop(uid)["start"]
-            dt0=datetime.strptime(start,"%Y-%m-%d %H:%M:%S")
-            mins=int((datetime.now()-dt0).total_seconds()//60)
-            log.extend([{"action":"Прогулка","time":start,"user":uid,"note":"start"},
-                        {"action":"Прогулка","time":now_str,"user":uid,"note":"end"}])
-            save_data(LOG_FILE,trim_old(log))
-            return await update.message.reply_text(f"🚶 Прогулка: {mins//60}ч {mins%60}м",reply_markup=MAIN_MENU)
-        active_walks[uid]={"start":now_str}
-        return await update.message.reply_text("🚶 Прогулка начата.",reply_markup=MAIN_MENU)
-
-    # Игры toggle
-    if text=="🌿 Игры":
-        if uid in active_games:
-            start=active_games.pop(uid)["start"]
-            dt0=datetime.strptime(start,"%Y-%m-%d %H:%M:%S")
-            mins=int((datetime.now()-dt0).total_seconds()//60)
-            log.extend([{"action":"Игры","time":start,"user":uid,"note":"start"},
-                        {"action":"Игры","time":now_str,"user":uid,"note":"end"}])
-            save_data(LOG_FILE,trim_old(log))
-            return await update.message.reply_text(f"🌿 Игры: {mins//60}ч {mins%60}м",reply_markup=MAIN_MENU)
-        active_games[uid]={"start":now_str}
-        return await update.message.reply_text("🌿 Игры начаты.",reply_markup=MAIN_MENU)
+    # --- Игры аналогично ---
+    if text == "🌿 Игры":
+        log = load_data(LOG_FILE, [])
+        starts = [
+            e for e in log
+            if e["action"] == "Игры" and e.get("note") == "start"
+            and not any(
+                e2["action"]=="Игры" and e2.get("note")=="end"
+                and datetime.strptime(e2["time"],"%Y-%m-%d %H:%M:%S")
+                    > datetime.strptime(e["time"],"%Y-%m-%d %H:%M:%S")
+                and e2["user"]==uid
+                for e2 in log
+            )
+            and e["user"]==uid
+        ]
+        if starts:
+            last_start = sorted(starts, key=lambda e: e["time"])[-1]
+            log.append({"action":"Игры","time":now_str,"user":uid,"note":"end"})
+            save_data(LOG_FILE, trim_old(log))
+            dt0 = datetime.strptime(last_start["time"], "%Y-%m-%d %H:%M:%S")
+            dt1 = datetime.strptime(now_str, "%Y-%m-%d %H:%M:%S")
+            delta = dt1 - dt0
+            h, m = divmod(delta.seconds // 60, 60)
+            return await update.message.reply_text(
+                f"🌿 Игры завершены: {h}ч {m}м",
+                reply_markup=MAIN_MENU
+            )
+        else:
+            log.append({"action":"Игры","time":now_str,"user":uid,"note":"start"})
+            save_data(LOG_FILE, trim_old(log))
+            return await update.message.reply_text(
+                "🌿 Игры начаты.",
+                reply_markup=MAIN_MENU
+            )
 
     # Био-прогулка toggle
     if text=="🧻 Био-прогулка":
-        if uid in active_bios:
-            start=active_bios.pop(uid)["start"]
-            dt0=datetime.strptime(start,"%Y-%m-%d %H:%M:%S")
-            mins=int((datetime.now()-dt0).total_seconds()//60)
-            log.extend([{"action":"Био-прогулка","time":start,"user":uid,"note":"start"},
-                        {"action":"Био-прогулка","time":now_str,"user":uid,"note":"end"}])
-            save_data(LOG_FILE,trim_old(log))
-            return await update.message.reply_text(f"🧻 Био-прогулка: {mins//60}ч {mins%60}м",reply_markup=MAIN_MENU)
-        active_bios[uid]={"start":now_str}
-        return await update.message.reply_text("🧻 Био-прогулка начата.",reply_markup=MAIN_MENU)
+        check_rotation()
+        log.append({
+            "action": "Био-прогулка",
+            "time": now_str,
+            "user": uid
+        })
+        save_data(LOG_FILE, trim_old(log))
+        return await update.message.reply_text(
+            "🧻 Био-прогулка записана.",
+            reply_markup=MAIN_MENU
+        )
 
     # Еда
     if text=="🍽️ Еда":
