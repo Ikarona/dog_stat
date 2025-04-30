@@ -245,7 +245,7 @@ async def handle_message(update:Update, context:ContextTypes.DEFAULT_TYPE):
             log.append({"action":data["action"],"time":now_str,"user":uid,"note":note})
             save_data(LOG_FILE,trim_old(log)); user_states.pop(uid)
             return await update.message.reply_text(f"✅ {data['action']} дома: {text.lower()}.",reply_markup=MAIN_MENU)
-if text == "🛌 Сон":
+    if text == "🛌 Сон":
         # загружаем лог
         log = load_data(LOG_FILE, [])
         # находим все старты без конца для этого пользователя
