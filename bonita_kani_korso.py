@@ -23,9 +23,12 @@ from datetime import datetime, date, timedelta, time
 from dotenv import load_dotenv
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+from zoneinfo import ZoneInfo
 
 # --- Конфигурация ---
 load_dotenv()
+os.environ['TZ'] = 'Europe/Belgrade'
+time.tzset()
 BOT_TOKEN        = os.getenv("TELEGRAM_BOT_TOKEN")
 ALLOWED_USER_IDS = [int(x) for x in os.getenv("ALLOWED_USER_IDS","").split(",") if x.strip().isdigit()]
 
@@ -687,21 +690,45 @@ async def handle_message(update:Update, context:ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Выберите действие из меню.",reply_markup=MAIN_MENU)
 
 def main():
+    # Проверяем конфигурацию
     if not BOT_TOKEN or not ALLOWED_USER_IDS:
-        print("❌ TELEGRAM_BOT_TOKEN и ALLOWED_USER_IDS в .env")
+        print("❌ TELEGRAM_BOT_TOKEN и ALLOWED_USER_IDS должны быть указаны в .env")
         return
+
+    # Создаём приложение и настраиваем часовой пояс APScheduler
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start",start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_message))
+    app.job_queue.scheduler.configure(timezone=ZoneInfo("Europe/Belgrade"))
+
+    # Регистрируем обработчики
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    # Планируем задания
     jq = app.job_queue
-    jq.run_daily(send_backup, time=time(hour=23,minute=59))
-    # Расписание напоминаний
-    sched=settings["schedule"]
-    for _,tstr in sched.items():
-        hh,mm=map(int,tstr.split(":"))
-        mt=datetime.combine(date.today(),time(hh,mm))
-        jq.run_daily(send_eat_reminder,time=(mt-timedelta(minutes=5)).time())
-        jq.run_daily(send_walk_reminder,time=(mt-timedelta(hours=1,minutes=10)).time())
+    tz = ZoneInfo("Europe/Belgrade")
+
+    # Ежедневный бэкап в 23:59
+    jq.run_daily(send_backup, time=time(hour=23, minute=59, tzinfo=tz))
+
+    # Напоминания о еде и прогулке
+    meal_order = ["breakfast", "lunch", "dinner", "late_dinner"]
+    sched = settings["schedule"]
+    n = settings.get("feedings_per_day", 1)
+
+    for key in meal_order[:n]:
+        hh, mm = map(int, sched[key].split(":"))
+        meal_time = time(hour=hh, minute=mm, tzinfo=tz)
+
+        # За 5 минут до еды
+        t_eat = (datetime.combine(date.today(), meal_time) - timedelta(minutes=5)).time()
+        jq.run_daily(send_eat_reminder,
+                     time=time(hour=t_eat.hour, minute=t_eat.minute, tzinfo=tz))
+
+        # За 1 час 10 минут до прогулки
+        t_walk = (datetime.combine(date.today(), meal_time) - timedelta(hours=1, minutes=10)).time()
+        jq.run_daily(send_walk_reminder,
+                     time=time(hour=t_walk.hour, minute=t_walk.minute, tzinfo=tz))
+
     print("✅ Bonita_Kani_Korso запущен")
     app.run_polling()
 
