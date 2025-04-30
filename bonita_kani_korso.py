@@ -174,7 +174,6 @@ schedule_labels = {
     "late_dinner": "время позднего ужина"
 }
 
-
 # === Handlers ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
@@ -310,7 +309,6 @@ def main():
     jq.run_repeating(check_reminders, interval=300, first=0)
     print("✅ Bonita_Kani_Korso запущен")
     app.run_polling()
-
 
 if __name__ == "__main__":
     main()
