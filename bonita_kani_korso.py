@@ -27,8 +27,6 @@ from zoneinfo import ZoneInfo
 
 # --- Конфигурация ---
 load_dotenv()
-os.environ['TZ'] = 'Europe/Belgrade'
-time.tzset()
 BOT_TOKEN        = os.getenv("TELEGRAM_BOT_TOKEN")
 ALLOWED_USER_IDS = [int(x) for x in os.getenv("ALLOWED_USER_IDS","").split(",") if x.strip().isdigit()]
 
